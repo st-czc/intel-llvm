@@ -48,30 +48,12 @@ namespace utils {
 // While clang also pushes `mdebug-pass` onto LLVM, it only works for the
 // legacy pass manager, and so we choose to only support and model the
 // `debug-pass-manager` form.
-DebugLogging DebugPasses;
-static cl::opt<DebugLogging, true> DebugPM(
-    "debug-pass-manager", cl::location(DebugPasses), cl::Hidden,
-    cl::ValueOptional, cl::desc("Print pass management debugging information"),
-    cl::init(DebugLogging::None),
-    cl::values(
-        clEnumValN(DebugLogging::Normal, "", ""),
-        clEnumValN(DebugLogging::Quiet, "quiet",
-                   "Skip printing info about analyses"),
-        clEnumValN(
-            DebugLogging::Verbose, "verbose",
-            "Print extra information about adaptors and pass managers")));
-
-bool VerifyEachIsEnabled;
-static cl::opt<bool, true> VerifyEach("verify-each",
-                                      cl::location(VerifyEachIsEnabled),
-                                      cl::desc("Verify after each transform"));
-
 PassMachinery::PassMachinery(LLVMContext &Ctx, TargetMachine *TM,
                              bool VerifyEach, DebugLogging debugLogLevel)
     : TM(TM) {
   llvm::PrintPassOptions PrintPassOpts;
-  PrintPassOpts.Verbose = DebugPM == DebugLogging::Verbose;
-  PrintPassOpts.SkipAnalyses = DebugPM == DebugLogging::Quiet;
+  PrintPassOpts.Verbose = debugLogLevel == DebugLogging::Verbose;
+  PrintPassOpts.SkipAnalyses = debugLogLevel == DebugLogging::Quiet;
   PrintPassOpts.Indent = debugLogLevel != DebugLogging::None;
   SI = std::make_unique<StandardInstrumentations>(
       Ctx, debugLogLevel != DebugLogging::None, VerifyEach, PrintPassOpts);
