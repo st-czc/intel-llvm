@@ -50,7 +50,7 @@ namespace utils {
 // `debug-pass-manager` form.
 DebugLogging DebugPasses;
 static cl::opt<DebugLogging, true> DebugPM(
-    "debug-pass-manager", cl::location(DebugPasses), cl::Hidden,
+    "native-cpu-debug-pass-manager", cl::location(DebugPasses), cl::Hidden,
     cl::ValueOptional, cl::desc("Print pass management debugging information"),
     cl::init(DebugLogging::None),
     cl::values(
@@ -62,7 +62,7 @@ static cl::opt<DebugLogging, true> DebugPM(
             "Print extra information about adaptors and pass managers")));
 
 bool VerifyEachIsEnabled;
-static cl::opt<bool, true> VerifyEach("verify-each",
+static cl::opt<bool, true> VerifyEach("native-cpu-verify-each",
                                       cl::location(VerifyEachIsEnabled),
                                       cl::desc("Verify after each transform"));
 
