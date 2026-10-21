@@ -12,6 +12,7 @@
 //
 //===----------------------------------------------------------------------===//
 #include "llvm/SYCLLowerIR/ConvertToMuxBuiltinsSYCLNativeCPU.h"
+#include "llvm/SYCLLowerIR/EmitHIPNoteSYCLNativeCPU.h"
 #include "llvm/SYCLLowerIR/PrepareSYCLNativeCPU.h"
 #include "llvm/SYCLLowerIR/RenameKernelSYCLNativeCPU.h"
 #include "llvm/SYCLLowerIR/SpecConstants.h"
@@ -67,6 +68,10 @@ static cl::opt<bool>
 void llvm::sycl::utils::addSYCLNativeCPUBackendPasses(
     llvm::ModulePassManager &MPM, ModuleAnalysisManager &MAM,
     OptimizationLevel OptLevel) {
+  // The note is emitted first: it describes the kernel signature, the kernel
+  // name and the group segment, and only at this point are all three still in
+  // the form the HIP runtime expects to read back.
+  MPM.addPass(EmitHIPNoteSYCLNativeCPUPass());
   MPM.addPass(SpecConstantsPass(SpecConstantsPass::HandlingMode::emulation));
   MPM.addPass(ConvertToMuxBuiltinsSYCLNativeCPUPass());
 #ifdef NATIVECPU_USE_OCK

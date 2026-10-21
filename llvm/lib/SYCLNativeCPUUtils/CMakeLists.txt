@@ -2,6 +2,7 @@ add_subdirectory(compiler_passes)
 
 add_llvm_pass_plugin(LLVMHIPOnSYCLNativeCPUPasses
   NativeCPUPassPlugin.cpp
+  EmitHIPNoteSYCLNativeCPU.cpp
   PipelineSYCLNativeCPU.cpp
   PrepareSYCLNativeCPU.cpp
   RenameKernelSYCLNativeCPU.cpp
