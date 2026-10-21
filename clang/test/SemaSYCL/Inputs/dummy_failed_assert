@@ -1,4 +1,0 @@
-void __failed_assertion();
-namespace std {
-void __glibcxx_assert_fail(const char*, int, const char*, const char*) noexcept;
-}

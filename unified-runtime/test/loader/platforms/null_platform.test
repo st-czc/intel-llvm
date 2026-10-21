@@ -1,5 +1,0 @@
-RUN: UR_LOG_TEST="level:info;output:stdout;flush:debug" %use-mock platforms-test
-
-CHECK: <TEST>[INFO]: urLoaderInit succeeded.
-CHECK: <TEST>[INFO]: urPlatformGet found 1 platforms
-CHECK: <TEST>[INFO]: Found Mock Platform

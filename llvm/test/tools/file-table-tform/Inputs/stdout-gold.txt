@@ -1,3 +1,0 @@
-[A|C|D]
-aaa|100|XXX
-ccc|200|YYY

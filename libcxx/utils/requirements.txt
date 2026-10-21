@@ -1,7 +1,0 @@
--r ci/lnt/requirements.txt
-click
-numpy
-pandas
-plotly
-scipy
-tabulate

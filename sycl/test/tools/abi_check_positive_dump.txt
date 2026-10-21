@@ -1,3 +1,0 @@
-_Z3foov
-_start
-main

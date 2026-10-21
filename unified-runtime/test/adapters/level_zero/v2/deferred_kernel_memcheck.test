@@ -1,9 +1,0 @@
-RUN: %with-v2 %valgrind --tool=memcheck --leak-check=full ./deferred_kernel-test 2>&1 | FileCheck %s
-REQUIRES: v2
-REQUIRES: valgrind
-UNSUPPORTED: system-windows
-
-COM: Valgrind may fail with corrupted debuginfo in some library builds.
-XFAIL: *
-
-CHECK: ERROR SUMMARY: 0 errors from 0 contexts
