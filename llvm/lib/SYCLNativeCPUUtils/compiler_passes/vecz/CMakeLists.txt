@@ -103,29 +103,19 @@ if(MSVC)
   list(APPEND VECZ_COMPILE_OPTIONS -wd4100)
 endif()
 
-add_llvm_component_library(LLVMNativeCPUVecz
+add_library(NativeCPUVecz OBJECT
   ${COMMON_SRCS}
-  LINK_COMPONENTS
-  AggressiveInstCombine
-  Analysis
-  Core
-  InstCombine
-  IPO
-  NativeCPUPipeline
-  Passes
-  ScalarOpts
-  Support
-  Target
-  TargetParser
-  TransformUtils
+  ${NATIVE_CPU_PASSES_SOURCE_DIR}/llvm/lib/Transforms/Utils/UnifyFunctionExitNodes.cpp
   )
 
-target_include_directories(LLVMNativeCPUVecz
+llvm_update_compile_flags(NativeCPUVecz)
+
+target_include_directories(NativeCPUVecz
   PUBLIC $<BUILD_INTERFACE:${VECZ_PUBLIC_INCLUDE_DIR}>
   PRIVATE $<BUILD_INTERFACE:${VECZ_PRIVATE_INCLUDE_DIR}>
 )
-target_compile_options(LLVMNativeCPUVecz PRIVATE ${VECZ_COMPILE_OPTIONS})
-target_compile_definitions(LLVMNativeCPUVecz PRIVATE
+target_compile_options(NativeCPUVecz PRIVATE ${VECZ_COMPILE_OPTIONS})
+target_compile_definitions(NativeCPUVecz PRIVATE
   ${VECZ_COMPILE_DEFINITIONS})
 
 # Currently disabled by default, these allow us to run lit tests using veczc
@@ -135,3 +125,4 @@ if (NATIVE_CPU_BUILD_VECZ_TEST_TOOLS)
   add_subdirectory(tools)
   add_subdirectory(test)
 endif()
+target_link_libraries(NativeCPUVecz PUBLIC LLVM NativeCPUPipeline)

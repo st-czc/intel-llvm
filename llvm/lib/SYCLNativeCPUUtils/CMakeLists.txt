@@ -1,44 +1,24 @@
-set(OCK_LIBS)
-option(NATIVECPU_USE_OCK "Use the oneAPI Construction Kit for Native CPU" ON)
+add_subdirectory(compiler_passes)
 
-# Don't use OCK compiler_passes if Native CPU is not enabled.
-if(NOT "native_cpu" IN_LIST SYCL_ENABLE_BACKENDS)
-  set(NATIVECPU_USE_OCK Off CACHE BOOL "Use the oneAPI Construction Kit for Native CPU" FORCE)
-endif()
-
-if(NATIVECPU_USE_OCK)
-  add_subdirectory(compiler_passes)
-  set(OCK_LIBS NativeCPUPipeline NativeCPUVecz)
-endif()
-
-add_llvm_component_library(LLVMSYCLNativeCPUUtils
+add_llvm_pass_plugin(LLVMHIPOnSYCLNativeCPUPasses
   PipelineSYCLNativeCPU.cpp
   PrepareSYCLNativeCPU.cpp
   RenameKernelSYCLNativeCPU.cpp
   ConvertToMuxBuiltinsSYCLNativeCPU.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/../SYCLLowerIR/SpecConstants.cpp
 
-  ADDITIONAL_HEADER_DIRS
-  ${LLVM_MAIN_INCLUDE_DIR}/llvm/SYCLLowerIR
-  
-  LINK_COMPONENTS
-  AggressiveInstCombine
-  Analysis
-  Core
-  IPO
-  Passes
-  ScalarOpts
-  Support
-  SYCLLowerIR
-  Target
-  TargetParser
-  TransformUtils
-  ${OCK_LIBS}
+  LINK_LIBS
+  LLVM
+  NativeCPUPipeline
+  NativeCPUVecz
+
+  INSTALL_WITH_TOOLCHAIN
 )
 
+target_compile_definitions(LLVMHIPOnSYCLNativeCPUPasses
+  PRIVATE NATIVECPU_USE_OCK)
 
-if(NATIVECPU_USE_OCK)
-  target_compile_definitions(LLVMSYCLNativeCPUUtils PRIVATE  NATIVECPU_USE_OCK)
-  target_include_directories(LLVMSYCLNativeCPUUtils PRIVATE 
-    ${CMAKE_CURRENT_SOURCE_DIR}/compiler_passes/compiler_pipeline/include
-    ${CMAKE_CURRENT_SOURCE_DIR}/compiler_passes/vecz/include)
-endif()
+target_include_directories(LLVMHIPOnSYCLNativeCPUPasses PRIVATE
+  ${CMAKE_CURRENT_SOURCE_DIR}/compiler_passes/compiler_pipeline/include
+  ${CMAKE_CURRENT_SOURCE_DIR}/compiler_passes/vecz/include
+)

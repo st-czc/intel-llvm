@@ -876,7 +876,7 @@ PreservedAnalyses SpecConstantsPass::run(Module &M,
     if (!F.isDeclaration())
       continue;
 
-    const bool IsSYCLAlloca = F.getIntrinsicID() == Intrinsic::sycl_alloca;
+    const bool IsSYCLAlloca = false;
 
     // 'llvm.sycl.alloca' is not supported in emulation mode on SPIR-V targets.
     if (IsSPIREmulated && IsSYCLAlloca)
@@ -1031,21 +1031,6 @@ PreservedAnalyses SpecConstantsPass::run(Module &M,
             generateSpecConstDefaultValueMetadata(DefaultValue));
       }
 
-      if (IsSYCLAlloca) {
-        // In case this is a 'sycl.llvm.alloca' intrinsic, use the emitted
-        // specialization constant as the allocation size.
-        auto *Intr = cast<SYCLAllocaInst>(CI);
-        // For emulation mode, use the default value for now. This code should
-        // never be run, as the runtime should throw a 'kernel_not_supported'
-        // exception.
-        Value *ArraySize =
-            Mode == HandlingMode::emulation ? DefaultValue : Replacement;
-        assert(ArraySize->getType()->isIntegerTy() && "Expecting integer type");
-        Replacement = new AllocaInst(
-            Intr->getAllocatedType(), Intr->getAddressSpace(), ArraySize,
-            Intr->getAlign(), "alloca", CI->getIterator());
-      }
-
       if (HasSretParameter)
         createStoreInstructionIntoSpecConstValue(CI->getArgOperand(0),
                                                  Replacement, CI);
@@ -1142,8 +1127,7 @@ bool SpecConstantsPass::collectSpecConstantDefaultValuesMetadata(
 bool llvm::checkModuleContainsSpecConsts(const Module &M) {
   for (const Function &F : M.functions()) {
     if (F.getName().starts_with(SYCL_GET_SCALAR_2020_SPEC_CONST_VAL) ||
-        F.getName().starts_with(SYCL_GET_COMPOSITE_2020_SPEC_CONST_VAL) ||
-        F.getIntrinsicID() == llvm::Intrinsic::sycl_alloca)
+        F.getName().starts_with(SYCL_GET_COMPOSITE_2020_SPEC_CONST_VAL))
       return true;
   }
 

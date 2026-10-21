@@ -1,4 +1,4 @@
-add_llvm_component_library(LLVMNativeCPUPipeline
+add_library(NativeCPUPipeline OBJECT
   ${CMAKE_CURRENT_SOURCE_DIR}/source/attributes.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/source/barrier_regions.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/source/builtin_info.cpp
@@ -20,16 +20,13 @@ add_llvm_component_library(LLVMNativeCPUPipeline
   ${CMAKE_CURRENT_SOURCE_DIR}/source/target_extension_types.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/source/work_item_loops_pass.cpp
 
-  LINK_COMPONENTS
-  Analysis
-  Core
-  Passes
-  Support
-  TransformUtils
   )
+
+llvm_update_compile_flags(NativeCPUPipeline)
 
 # TODO: Move to under LLVM include and work out why ADDITIONAL_HEADER_DIRS
 # does not capture it.
-target_include_directories(LLVMNativeCPUPipeline PUBLIC
+target_include_directories(NativeCPUPipeline PUBLIC
 $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
 )
+target_link_libraries(NativeCPUPipeline PUBLIC LLVM)
