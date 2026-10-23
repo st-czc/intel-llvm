@@ -32,6 +32,18 @@ cmake -S <llvm-src> -B build \
 
 In this mode the plugin is built and installed as part of LLVM.
 
+## Bitcode
+
+The plugin installs `libsycl-nativecpu_utils.bc` to `spvcpu/bitcode` under the
+install prefix. The file is downloaded from
+[`hipcpu-artifacts`](https://github.com/st-czc/hipcpu-artifacts) at configure
+time, pinned by `NATIVECPU_BITCODE_TAG` in `CMakeLists.txt` (an intel/llvm tag).
+
+- `NATIVECPU_BITCODE_DOWNLOAD` (`ON` by default) — set to `OFF` to skip both the
+  download and the install.
+- `NATIVECPU_BITCODE_FILE` (empty by default) — path to a local bitcode file;
+  takes precedence over the download.
+
 ## Use
 
 The plugin runs on device IR or bitcode produced for the SYCL Native CPU
