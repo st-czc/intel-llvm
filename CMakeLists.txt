@@ -48,10 +48,16 @@ if(NATIVECPU_BITCODE_FILE)
   endif()
   set(_nativecpu_bitcode_file "${NATIVECPU_BITCODE_FILE}")
 elseif(NATIVECPU_BITCODE_DOWNLOAD)
+  set(_nativecpu_bitcode_ref "${NATIVECPU_BITCODE_TAG}")
+  string(TOLOWER "${CMAKE_SYSTEM_PROCESSOR}" _nativecpu_arch)
+  if(_nativecpu_arch MATCHES "^riscv64")
+    set(_nativecpu_bitcode_ref "riscv64/${NATIVECPU_BITCODE_TAG}")
+  endif()
+
   include(FetchContent)
   FetchContent_Declare(nativecpu-bitcode
     GIT_REPOSITORY https://github.com/st-czc/hipcpu-artifacts.git
-    GIT_TAG ${NATIVECPU_BITCODE_TAG}
+    GIT_TAG ${_nativecpu_bitcode_ref}
     GIT_SHALLOW TRUE
   )
   FetchContent_MakeAvailable(nativecpu-bitcode)

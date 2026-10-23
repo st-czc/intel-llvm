@@ -38,6 +38,7 @@ The plugin installs `libsycl-nativecpu_utils.bc` to `spvcpu/bitcode` under the
 install prefix. The file is downloaded from
 [`hipcpu-artifacts`](https://github.com/st-czc/hipcpu-artifacts) at configure
 time, pinned by `NATIVECPU_BITCODE_TAG` in `CMakeLists.txt` (an intel/llvm tag).
+On a `riscv64` host the `riscv64/<tag>` ref of that repository is used instead.
 
 - `NATIVECPU_BITCODE_DOWNLOAD` (`ON` by default) — set to `OFF` to skip both the
   download and the install.
