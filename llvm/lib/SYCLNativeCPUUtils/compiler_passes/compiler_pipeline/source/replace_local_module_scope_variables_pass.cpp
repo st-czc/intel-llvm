@@ -263,6 +263,8 @@ PreservedAnalyses compiler::utils::ReplaceLocalModuleScopeVariablesPass::run(
   // This pass identifies these variables and places them into a struct
   // allocated in a newly created wrapper function. A pointer to the struct
   // is then passed via a parameter to the original kernel.
+  bool HasDynamicShared = false;
+
   for (auto &global : M.globals()) {
     // get the type of the global variable
     const auto type = global.getType();
@@ -273,6 +275,11 @@ PreservedAnalyses compiler::utils::ReplaceLocalModuleScopeVariablesPass::run(
 
     if (type->isPointerTy() &&
         type->getPointerAddressSpace() == AddressSpace::Local) {
+      // A declaration in the local address space is the dynamic shared memory
+      // region declared by extern __shared__.
+      if (global.isDeclaration()) {
+        HasDynamicShared = true;
+      }
       // and save that this is a global we care about
       globals.push_back(&global);
     }
@@ -610,6 +617,30 @@ PreservedAnalyses compiler::utils::ReplaceLocalModuleScopeVariablesPass::run(
     }
   }
 
+  // The dynamic shared memory size is a launch-time value the compiler cannot
+  // know. The runtime sets it through this setter into a thread-local variable
+  // that the wrapper below reads to size the stack allocation.
+  GlobalVariable *DynamicSharedTLS = nullptr;
+  if (HasDynamicShared) {
+    auto *I64Ty = Type::getInt64Ty(M.getContext());
+    DynamicSharedTLS = new GlobalVariable(
+        M, I64Ty, /*isConstant=*/false, GlobalValue::InternalLinkage,
+        ConstantInt::get(I64Ty, 0), "__hipcpu_dynamic_shared_mem_bytes",
+        /*InsertBefore=*/nullptr, GlobalValue::GeneralDynamicTLSModel,
+        /*AddressSpace=*/0, /*isExternallyInitialized=*/false);
+
+    auto *SetterTy = FunctionType::get(Type::getVoidTy(M.getContext()),
+                                       {I64Ty}, /*isVarArg=*/false);
+    auto *Setter = Function::Create(SetterTy, GlobalValue::ExternalLinkage,
+                                    "__hipcpu_set_dynamic_shared_mem_bytes", &M);
+
+    IRBuilder<> SetterBuilder(
+        BasicBlock::Create(M.getContext(), "entry", Setter));
+    Value *TLSAddr = SetterBuilder.CreateThreadLocalAddress(DynamicSharedTLS);
+    SetterBuilder.CreateStore(Setter->getArg(0), TLSAddr);
+    SetterBuilder.CreateRetVoid();
+  }
+
   // lastly, we create a wrapper function with the original kernel signature
   // of each kernel, which will alloca the struct for the remapped local
   // module-scope variables
@@ -665,8 +696,21 @@ PreservedAnalyses compiler::utils::ReplaceLocalModuleScopeVariablesPass::run(
     // create an irbuilder and basic block for our new function
     IRBuilder<> ir(BasicBlock::Create(newFunc->getContext(), "", newFunc));
 
-    // stack allocate the local module-scope variables struct
-    auto alloca = ir.CreateAlloca(structTy);
+    // stack allocate the local module-scope variables struct. With dynamic
+    // shared memory the buffer is the fixed struct plus the dynamic size read
+    // from the thread-local set by the runtime.
+    AllocaInst *alloca = nullptr;
+    if (!HasDynamicShared) {
+      alloca = ir.CreateAlloca(structTy);
+    } else {
+      auto *I64Ty = Type::getInt64Ty(M.getContext());
+      Value *FixedSize =
+          ConstantInt::get(I64Ty, dl.getTypeAllocSize(structTy).getFixedValue());
+      Value *TLSAddr = ir.CreateThreadLocalAddress(DynamicSharedTLS);
+      Value *DynamicSize = ir.CreateLoad(I64Ty, TLSAddr);
+      Value *TotalSize = ir.CreateAdd(FixedSize, DynamicSize);
+      alloca = ir.CreateAlloca(Type::getInt8Ty(M.getContext()), TotalSize);
+    }
     alloca->setAlignment(MaybeAlign(maxAlignment).valueOrOne());
 
     // Generate debug info metadata for the globals we have replaced

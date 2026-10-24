@@ -57,6 +57,9 @@ RenameKernelSYCLNativeCPUPass::run(Module &M, ModuleAnalysisManager &MAM) {
       ModuleChanged = true;
     } else if (isSpirvSyclBuiltin(F.getName()) || F.isIntrinsic())
       continue;
+    else if (F.getName() == "__hipcpu_set_dynamic_shared_mem_bytes")
+      // Exported entry point the HIP runtime calls via dlsym; keep it.
+      continue;
     else if (!F.isDeclaration()) {
       F.setComdat(nullptr);
       // todo: check what functions could be exported

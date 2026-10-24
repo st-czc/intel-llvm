@@ -11,6 +11,7 @@
 // When NATIVECPU_USE_OCK is set, adds passes from the oneAPI Construction Kit.
 //
 //===----------------------------------------------------------------------===//
+#include "llvm/SYCLLowerIR/AggregateExternSharedSYCLNativeCPU.h"
 #include "llvm/SYCLLowerIR/ConvertToMuxBuiltinsSYCLNativeCPU.h"
 #include "llvm/SYCLLowerIR/EmitHIPNoteSYCLNativeCPU.h"
 #include "llvm/SYCLLowerIR/PrepareSYCLNativeCPU.h"
@@ -72,6 +73,7 @@ void llvm::sycl::utils::addSYCLNativeCPUBackendPasses(
   // name and the group segment, and only at this point are all three still in
   // the form the HIP runtime expects to read back.
   MPM.addPass(EmitHIPNoteSYCLNativeCPUPass());
+  MPM.addPass(AggregateExternSharedSYCLNativeCPUPass());
   MPM.addPass(SpecConstantsPass(SpecConstantsPass::HandlingMode::emulation));
   MPM.addPass(ConvertToMuxBuiltinsSYCLNativeCPUPass());
 #ifdef NATIVECPU_USE_OCK
