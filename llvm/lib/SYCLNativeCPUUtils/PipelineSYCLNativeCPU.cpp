@@ -14,6 +14,7 @@
 #include "llvm/SYCLLowerIR/AggregateExternSharedSYCLNativeCPU.h"
 #include "llvm/SYCLLowerIR/ConvertToMuxBuiltinsSYCLNativeCPU.h"
 #include "llvm/SYCLLowerIR/EmitHIPNoteSYCLNativeCPU.h"
+#include "llvm/SYCLLowerIR/LowerAMDGPUBuiltinsSYCLNativeCPU.h"
 #include "llvm/SYCLLowerIR/PrepareSYCLNativeCPU.h"
 #include "llvm/SYCLLowerIR/RenameKernelSYCLNativeCPU.h"
 #include "llvm/SYCLLowerIR/SpecConstants.h"
@@ -76,6 +77,7 @@ void llvm::sycl::utils::addSYCLNativeCPUBackendPasses(
   MPM.addPass(AggregateExternSharedSYCLNativeCPUPass());
   MPM.addPass(SpecConstantsPass(SpecConstantsPass::HandlingMode::emulation));
   MPM.addPass(ConvertToMuxBuiltinsSYCLNativeCPUPass());
+  MPM.addPass(LowerAMDGPUBuiltinsSYCLNativeCPUPass());
 #ifdef NATIVECPU_USE_OCK
   MPM.addPass(compiler::utils::PrepareBarriersPass());
   MPM.addPass(compiler::utils::TransferKernelMetadataPass());
