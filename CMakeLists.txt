@@ -73,4 +73,5 @@ if(_nativecpu_bitcode_file)
   install(FILES "${_nativecpu_bitcode_file}" DESTINATION spvcpu/bitcode)
 endif()
 
+add_subdirectory(hipcpu/FrexpF64Devectorize)
 add_subdirectory(llvm/lib/SYCLNativeCPUUtils)
