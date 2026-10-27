@@ -346,6 +346,32 @@ PacketRange PacketInfo::getRange(std::vector<llvm::Value *> &d,
   }
 }
 
+namespace {
+// Gathers instantiated instances of a literal struct into the same structural
+// form that getWideType() produces, i.e. each field is gathered on its own so
+// that a {float, i32} instance becomes {<N x float>, <N x i32>}. The array
+// representation used for non-vectorizable types cannot be indexed by
+// packetizeExtractValue/InsertValue, which only know about structs.
+Value *gatherLiteralStruct(IRBuilder<> &B, const PacketRange &Packet,
+                           StructType *StructTy, StringRef Name) {
+  const auto NumInstances = Packet.size();
+  Value *Gather = PoisonValue::get(
+      getWideType(StructTy, ElementCount::getFixed(NumInstances)));
+  for (unsigned F = 0, E = StructTy->getNumElements(); F != E; ++F) {
+    Value *Field = PoisonValue::get(VectorType::get(
+        StructTy->getElementType(F), ElementCount::getFixed(NumInstances)));
+    for (unsigned I = 0; I < NumInstances; ++I) {
+      Value *Lane =
+          B.CreateExtractValue(Packet.at(I), F, Twine(Name, ".field"));
+      Field = B.CreateInsertElement(Field, Lane, B.getInt32(I),
+                                    Twine(Name, ".gather"));
+    }
+    Gather = B.CreateInsertValue(Gather, Field, F, Twine(Name, ".struct"));
+  }
+  return Gather;
+}
+} // namespace
+
 Value *Packetizer::Result::getAsValue() const {
   if (!scalar || !info) {
     return nullptr;
@@ -407,6 +433,10 @@ Value *Packetizer::Result::getAsValue() const {
     IRBuilder<> B(buildAfter(parts[1], packetizer.F));
     info->vector = B.CreateShuffleVector(parts[0], parts[1], mask,
                                          Twine(name, ".concatenate"));
+  } else if (auto *structTy = dyn_cast<StructType>(eleTy);
+             structTy && structTy->isLiteral()) {
+    IRBuilder<> B(buildAfter(packet.back(), packetizer.F));
+    info->vector = gatherLiteralStruct(B, packet, structTy, name);
   } else {
     Value *gather = PoisonValue::get(ArrayType::get(eleTy, packet.size()));
 
