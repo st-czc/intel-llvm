@@ -94,15 +94,10 @@ void emitHIPSubkernelForKernel(Function *F, Type *NativeCPUArgDescType,
   SmallVector<Value *, 5> KernelArgs;
 
   // Handle kernel with shared memory
-  AllocaInst *DynSharedMem = nullptr;
-  if (F->hasFnAttribute("hipcpu-dynamic-shared-mem")) {
-    auto Align = F->getFnAttributeAsParsedInteger("hipcpu-dynamic-shared-mem");
-    DynSharedMem = Builder.CreateAlloca(Type::getInt8Ty(Ctx), SubhF->getArg(4));
-    DynSharedMem->setAlignment(MaybeAlign(Align).valueOrOne());
-  }
+  bool PassDynSize = F->hasFnAttribute("hipcpu-dynamic-shared-mem");
 
   unsigned Inc = 0;
-  Inc += DynSharedMem != nullptr ? 1 : 0;
+  Inc += PassDynSize ? 1 : 0;
   Inc += StateArgTLS == nullptr ? 1 : 0;
   for (unsigned I = 0; I + Inc < NumArgs; I++) {
     auto *Arg = F->getArg(I);
@@ -121,8 +116,8 @@ void emitHIPSubkernelForKernel(Function *F, Type *NativeCPUArgDescType,
     }
   }
 
-  if (DynSharedMem)
-    KernelArgs.push_back(DynSharedMem);
+  if (PassDynSize)
+    KernelArgs.push_back(SubhF->getArg(4));
 
   // Call the kernel
   // Add the nativecpu state as arg

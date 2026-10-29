@@ -14,6 +14,7 @@
 //
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
+#include "llvm/IR/DerivedTypes.h"
 #include <compiler/utils/address_spaces.h>
 #include <compiler/utils/attributes.h>
 #include <compiler/utils/metadata.h>
@@ -32,7 +33,6 @@
 #include <algorithm>
 #include <cassert>
 #include <functional>
-#include <string>
 
 using namespace llvm;
 
@@ -627,19 +627,22 @@ PreservedAnalyses compiler::utils::ReplaceLocalModuleScopeVariablesPass::run(
 
     // the original kernel function type, saved earlier
     auto kernelFuncTy = functionTypes[name];
-    SmallVector<Type *, 8> newParams(kernelFuncTy->params());
-    newParams.push_back(PointerType::getUnqual(M.getContext()));
-    auto newFuncTy = FunctionType::get(kernelFuncTy->getReturnType(), newParams,
-                                       kernelFuncTy->isVarArg());
+    auto newFuncTy = kernelFuncTy;
+    if (HasDynamicShared) {
+      SmallVector<Type *, 8> newParams(kernelFuncTy->params());
+      newParams.push_back(Type::getInt64Ty(M.getContext()));
+      newFuncTy = FunctionType::get(kernelFuncTy->getReturnType(), newParams,
+                                    kernelFuncTy->isVarArg());
+    }
     auto newFunc =
         Function::Create(newFuncTy, kernelFunc->getLinkage(), "", &M);
 
     // copy over function parameter names
-    for (unsigned i = 0, e = kernelFunc->arg_size(); i != e; i++) {
+    for (unsigned i = 0, e = kernelFuncTy->getNumParams(); i != e; i++) {
       newFunc->getArg(i)->setName(kernelFunc->getArg(i)->getName());
     }
     // copy over function/parameter/ret attributes
-    copyFunctionAttrs(*kernelFunc, *newFunc, kernelFunc->arg_size());
+    copyFunctionAttrs(*kernelFunc, *newFunc, kernelFuncTy->getNumParams());
 
     auto baseName = getOrSetBaseFnName(*newFunc, *kernelFunc);
     newFunc->setName(baseName + ".mux-local-var-wrapper");
@@ -679,13 +682,19 @@ PreservedAnalyses compiler::utils::ReplaceLocalModuleScopeVariablesPass::run(
     // stack allocate the local module-scope variables struct. With dynamic
     // shared memory the buffer is the fixed struct plus the dynamic size read
     // from the thread-local set by the runtime.
-    // alloca is replaced by last argument
-    Value *alloca = newFunc->getArg(newFunc->arg_size() - 1);
-    auto sharedMemSize = dl.getTypeAllocSize(structTy).getFixedValue();
-    newFunc->addFnAttr("hipcpu-shared-mem-size", std::to_string(sharedMemSize));
-    newFunc->addFnAttr("hipcpu-shared-mem-align", std::to_string(maxAlignment));
-    if (HasDynamicShared)
-      newFunc->addFnAttr("hipcpu-shared-mem-dynamic");
+    AllocaInst *alloca = nullptr;
+    if (!HasDynamicShared) {
+      alloca = ir.CreateAlloca(structTy);
+    } else {
+      newFunc->addFnAttr("hipcpu-dynamic-shared-mem");
+      auto *I64Ty = Type::getInt64Ty(M.getContext());
+      Value *FixedSize = ConstantInt::get(
+          I64Ty, dl.getTypeAllocSize(structTy).getFixedValue());
+      Value *DynamicSize = newFunc->getArg(newFunc->arg_size() - 1);
+      Value *TotalSize = ir.CreateAdd(FixedSize, DynamicSize);
+      alloca = ir.CreateAlloca(Type::getInt8Ty(M.getContext()), TotalSize);
+    }
+    alloca->setAlignment(MaybeAlign(maxAlignment).valueOrOne());
 
     // Generate debug info metadata for the globals we have replaced
     // which previously had debug info attached
@@ -732,7 +741,7 @@ PreservedAnalyses compiler::utils::ReplaceLocalModuleScopeVariablesPass::run(
                           /*Column*/ 0, DISubprogram);
       if (enqueued_kernel_scope) {
         DIB.insertDeclare(alloca, DILocal, offset_expr, location,
-                          &newFunc->getEntryBlock());
+                          alloca->getParent());
       } else {
         // A pointer to our struct is passed as the last argument to each
         // function, use this argument if the global came from another kernel
@@ -750,11 +759,12 @@ PreservedAnalyses compiler::utils::ReplaceLocalModuleScopeVariablesPass::run(
       args.push_back(&arg);
     }
 
-    // alloca is replaced by last argument
-#if 0
+    if (HasDynamicShared) {
+      args.pop_back();
+    }
+
     // add the new alloca for the local module-scope variables struct
     args.push_back(alloca);
-#endif
 
     // call the original function
     auto ci = ir.CreateCall(kernelFunc, args);
