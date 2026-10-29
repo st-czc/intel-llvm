@@ -92,7 +92,18 @@ void emitHIPSubkernelForKernel(Function *F, Type *NativeCPUArgDescType,
   unsigned NumArgs = F->getFunctionType()->getNumParams();
   auto *BaseNativeCPUArg = SubhF->getArg(0);
   SmallVector<Value *, 5> KernelArgs;
-  const unsigned Inc = StateArgTLS == nullptr ? 1 : 0;
+
+  // Handle kernel with shared memory
+  AllocaInst *DynSharedMem = nullptr;
+  if (F->hasFnAttribute("hipcpu-dynamic-shared-mem")) {
+    auto Align = F->getFnAttributeAsParsedInteger("hipcpu-dynamic-shared-mem");
+    DynSharedMem = Builder.CreateAlloca(Type::getInt8Ty(Ctx), SubhF->getArg(4));
+    DynSharedMem->setAlignment(MaybeAlign(Align).valueOrOne());
+  }
+
+  unsigned Inc = 0;
+  Inc += DynSharedMem != nullptr ? 1 : 0;
+  Inc += StateArgTLS == nullptr ? 1 : 0;
   for (unsigned I = 0; I + Inc < NumArgs; I++) {
     auto *Arg = F->getArg(I);
     // Load the correct NativeCPUDesc and load the pointer from it
@@ -110,6 +121,9 @@ void emitHIPSubkernelForKernel(Function *F, Type *NativeCPUArgDescType,
     }
   }
 
+  if (DynSharedMem)
+    KernelArgs.push_back(DynSharedMem);
+
   // Call the kernel
   // Add the nativecpu state as arg
   if (StateArgTLS) {
@@ -117,14 +131,6 @@ void emitHIPSubkernelForKernel(Function *F, Type *NativeCPUArgDescType,
     Builder.CreateStore(SubhF->getArg(1), Addr);
   } else
     KernelArgs.push_back(SubhF->getArg(1));
-
-  // The dynamic shared memory size is a launch-time value that the kernel
-  // wrapper reads from a thread-local variable.
-  if (GlobalVariable *DynShared = F->getParent()->getGlobalVariable(
-          "__hipcpu_dynamic_shared_mem_bytes", /*AllowInternal=*/true)) {
-    Value *Addr = Builder.CreateThreadLocalAddress(DynShared);
-    Builder.CreateStore(SubhF->getArg(4), Addr);
-  }
 
   // Loop over the work-group range on dimension 0
   Value *XBegin = SubhF->getArg(2);
