@@ -55,6 +55,118 @@ namespace {
 
 void fixCallingConv(Function *F) { F->setCallingConv(llvm::CallingConv::C); }
 
+// Byte offset of MWorkGroup_id[0] in struct __nativecpu_state.
+static constexpr uint64_t NativeCPUWorkGroupIdOffset = 72;
+
+// Run a range of blocks.
+void emitHIPSubkernelForKernel(Function *F, Type *NativeCPUArgDescType,
+                               Type *StatePtrType,
+                               llvm::Constant *StateArgTLS) {
+  LLVMContext &Ctx = F->getContext();
+  Type *I64Ty = Type::getInt64Ty(Ctx);
+  Type *NativeCPUArgDescPtrType = PointerType::getUnqual(Ctx);
+
+  // Create function signature
+  // Todo: we need to ensure that the kernel name is not mangled as a type
+  // name, otherwise this may lead to runtime failures due to *weird*
+  // codegen/linking behaviour, we change the name of the kernel, and the
+  // subhandler steals its name, we add a suffix to the subhandler later
+  // on when lowering the device module
+  std::string OldName = F->getName().str();
+  auto NewName = Twine(OldName) + sycl::utils::SYCLNATIVECPUKERNEL;
+  const StringRef SubHandlerName = OldName;
+  F->setName(NewName);
+  F->setComdat(nullptr);
+  F->setLinkage(GlobalValue::LinkageTypes::InternalLinkage);
+  FunctionType *FTy = FunctionType::get(
+      Type::getVoidTy(Ctx),
+      {NativeCPUArgDescPtrType, StatePtrType, I64Ty, I64Ty, I64Ty}, false);
+  auto SubhFCallee = F->getParent()->getOrInsertFunction(SubHandlerName, FTy);
+  Function *SubhF = cast<Function>(SubhFCallee.getCallee());
+
+  // Emit function body, unpack kernel args
+  auto *KernelTy = F->getFunctionType();
+  IRBuilder<> Builder(Ctx);
+  BasicBlock *Block = BasicBlock::Create(Ctx, "entry", SubhF);
+  Builder.SetInsertPoint(Block);
+  unsigned NumArgs = F->getFunctionType()->getNumParams();
+  auto *BaseNativeCPUArg = SubhF->getArg(0);
+  SmallVector<Value *, 5> KernelArgs;
+  const unsigned Inc = StateArgTLS == nullptr ? 1 : 0;
+  for (unsigned I = 0; I + Inc < NumArgs; I++) {
+    auto *Arg = F->getArg(I);
+    // Load the correct NativeCPUDesc and load the pointer from it
+    auto *Addr = Builder.CreateGEP(NativeCPUArgDescType, BaseNativeCPUArg,
+                                   {Builder.getInt64(I)});
+    if (Arg->getType()->isPointerTy()) {
+      // If the arg is a pointer, just use it
+      auto *Load = Builder.CreateLoad(Arg->getType(), Addr);
+      KernelArgs.push_back(Load);
+    } else {
+      // Otherwise, load the scalar value and use that
+      auto *Load = Builder.CreateLoad(PointerType::getUnqual(Ctx), Addr);
+      auto *Scalar = Builder.CreateLoad(Arg->getType(), Load);
+      KernelArgs.push_back(Scalar);
+    }
+  }
+
+  // Call the kernel
+  // Add the nativecpu state as arg
+  if (StateArgTLS) {
+    Value *Addr = Builder.CreateThreadLocalAddress(StateArgTLS);
+    Builder.CreateStore(SubhF->getArg(1), Addr);
+  } else
+    KernelArgs.push_back(SubhF->getArg(1));
+
+  // The dynamic shared memory size is a launch-time value that the kernel
+  // wrapper reads from a thread-local variable.
+  if (GlobalVariable *DynShared = F->getParent()->getGlobalVariable(
+          "__hipcpu_dynamic_shared_mem_bytes", /*AllowInternal=*/true)) {
+    Value *Addr = Builder.CreateThreadLocalAddress(DynShared);
+    Builder.CreateStore(SubhF->getArg(4), Addr);
+  }
+
+  // Loop over the work-group range on dimension 0
+  Value *XBegin = SubhF->getArg(2);
+  Value *XEnd = SubhF->getArg(3);
+  BasicBlock *Header = BasicBlock::Create(Ctx, "hipcpu.loop", SubhF);
+  BasicBlock *Exit = BasicBlock::Create(Ctx, "hipcpu.exit", SubhF);
+  Builder.CreateCondBr(Builder.CreateICmpULT(XBegin, XEnd), Header, Exit);
+
+  Builder.SetInsertPoint(Header);
+  auto *X = Builder.CreatePHI(I64Ty, 2, "hipcpu.x");
+  X->addIncoming(XBegin, Block);
+  Value *WgIdSlot =
+      Builder.CreateGEP(Type::getInt8Ty(Ctx), SubhF->getArg(1),
+                        {ConstantInt::get(I64Ty, NativeCPUWorkGroupIdOffset)});
+  Builder.CreateStore(X, WgIdSlot);
+  Builder.CreateCall(KernelTy, F, KernelArgs);
+  Value *XNext = Builder.CreateAdd(X, Builder.getInt64(1), "hipcpu.x.next");
+  X->addIncoming(XNext, Header);
+  Builder.CreateCondBr(Builder.CreateICmpULT(XNext, XEnd), Header, Exit);
+
+  Builder.SetInsertPoint(Exit);
+  Builder.CreateRetVoid();
+
+  fixCallingConv(F);
+  fixCallingConv(SubhF);
+  // Add sycl-module-id and target attributes
+  // Todo: we may want to copy other attributes to the subhandler,
+  // but we can't simply use setAttributes(F->getAttributes) since
+  // the function signatures are different
+  if (F->hasFnAttribute("target-features")) {
+    SubhF->addFnAttr(F->getFnAttribute("target-features"));
+  }
+  if (F->hasFnAttribute("target-cpu")) {
+    SubhF->addFnAttr(F->getFnAttribute("target-cpu"));
+  }
+  if (F->hasFnAttribute(sycl::utils::ATTR_SYCL_MODULE_ID)) {
+    Attribute MId = F->getFnAttribute(sycl::utils::ATTR_SYCL_MODULE_ID);
+    SubhF->addFnAttr("sycl-module-id", MId.getValueAsString());
+  }
+}
+
+#if 0
 void emitSubkernelForKernel(Function *F, Type *NativeCPUArgDescType,
                             Type *StatePtrType, llvm::Constant *StateArgTLS) {
   LLVMContext &Ctx = F->getContext();
@@ -129,6 +241,7 @@ void emitSubkernelForKernel(Function *F, Type *NativeCPUArgDescType,
     SubhF->addFnAttr("sycl-module-id", MId.getValueAsString());
   }
 }
+#endif
 
 // Clones the function and returns a new function with a new argument on type T
 // added as last argument
@@ -418,8 +531,12 @@ PreservedAnalyses PrepareSYCLNativeCPUPass::run(Module &M,
   StructType *NativeCPUArgDescType =
       StructType::create({PointerType::getUnqual(M.getContext())});
   for (auto &NewK : NewKernels) {
+#if 0
     emitSubkernelForKernel(NewK, NativeCPUArgDescType, StatePtrType,
                            CurrentStatePointerTLS);
+#endif
+    emitHIPSubkernelForKernel(NewK, NativeCPUArgDescType, StatePtrType,
+                              CurrentStatePointerTLS);
   }
 
   // Then we iterate over all used builtins and
