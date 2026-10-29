@@ -617,30 +617,6 @@ PreservedAnalyses compiler::utils::ReplaceLocalModuleScopeVariablesPass::run(
     }
   }
 
-  // The dynamic shared memory size is a launch-time value the compiler cannot
-  // know. The runtime sets it through this setter into a thread-local variable
-  // that the wrapper below reads to size the stack allocation.
-  GlobalVariable *DynamicSharedTLS = nullptr;
-  if (HasDynamicShared) {
-    auto *I64Ty = Type::getInt64Ty(M.getContext());
-    DynamicSharedTLS = new GlobalVariable(
-        M, I64Ty, /*isConstant=*/false, GlobalValue::InternalLinkage,
-        ConstantInt::get(I64Ty, 0), "__hipcpu_dynamic_shared_mem_bytes",
-        /*InsertBefore=*/nullptr, GlobalValue::GeneralDynamicTLSModel,
-        /*AddressSpace=*/0, /*isExternallyInitialized=*/false);
-
-    auto *SetterTy = FunctionType::get(Type::getVoidTy(M.getContext()),
-                                       {I64Ty}, /*isVarArg=*/false);
-    auto *Setter = Function::Create(SetterTy, GlobalValue::ExternalLinkage,
-                                    "__hipcpu_set_dynamic_shared_mem_bytes", &M);
-
-    IRBuilder<> SetterBuilder(
-        BasicBlock::Create(M.getContext(), "entry", Setter));
-    Value *TLSAddr = SetterBuilder.CreateThreadLocalAddress(DynamicSharedTLS);
-    SetterBuilder.CreateStore(Setter->getArg(0), TLSAddr);
-    SetterBuilder.CreateRetVoid();
-  }
-
   // lastly, we create a wrapper function with the original kernel signature
   // of each kernel, which will alloca the struct for the remapped local
   // module-scope variables
@@ -650,16 +626,22 @@ PreservedAnalyses compiler::utils::ReplaceLocalModuleScopeVariablesPass::run(
 
     // the original kernel function type, saved earlier
     auto kernelFuncTy = functionTypes[name];
-
+    auto newFuncTy = kernelFuncTy;
+    if (HasDynamicShared) {
+      SmallVector<Type *, 8> newParams(kernelFuncTy->params());
+      newParams.push_back(Type::getInt64Ty(M.getContext()));
+      newFuncTy = FunctionType::get(kernelFuncTy->getReturnType(), newParams,
+                                    kernelFuncTy->isVarArg());
+    }
     auto newFunc =
-        Function::Create(kernelFuncTy, kernelFunc->getLinkage(), "", &M);
+        Function::Create(newFuncTy, kernelFunc->getLinkage(), "", &M);
 
     // copy over function parameter names
-    for (unsigned i = 0, e = newFunc->arg_size(); i != e; i++) {
+    for (unsigned i = 0, e = kernelFuncTy->getNumParams(); i != e; i++) {
       newFunc->getArg(i)->setName(kernelFunc->getArg(i)->getName());
     }
     // copy over function/parameter/ret attributes
-    copyFunctionAttrs(*kernelFunc, *newFunc, newFunc->arg_size());
+    copyFunctionAttrs(*kernelFunc, *newFunc, kernelFuncTy->getNumParams());
 
     auto baseName = getOrSetBaseFnName(*newFunc, *kernelFunc);
     newFunc->setName(baseName + ".mux-local-var-wrapper");
@@ -703,11 +685,11 @@ PreservedAnalyses compiler::utils::ReplaceLocalModuleScopeVariablesPass::run(
     if (!HasDynamicShared) {
       alloca = ir.CreateAlloca(structTy);
     } else {
+      newFunc->addFnAttr("hipcpu-dynamic-shared-mem");
       auto *I64Ty = Type::getInt64Ty(M.getContext());
-      Value *FixedSize =
-          ConstantInt::get(I64Ty, dl.getTypeAllocSize(structTy).getFixedValue());
-      Value *TLSAddr = ir.CreateThreadLocalAddress(DynamicSharedTLS);
-      Value *DynamicSize = ir.CreateLoad(I64Ty, TLSAddr);
+      Value *FixedSize = ConstantInt::get(
+          I64Ty, dl.getTypeAllocSize(structTy).getFixedValue());
+      Value *DynamicSize = newFunc->getArg(newFunc->arg_size() - 1);
       Value *TotalSize = ir.CreateAdd(FixedSize, DynamicSize);
       alloca = ir.CreateAlloca(Type::getInt8Ty(M.getContext()), TotalSize);
     }
@@ -774,6 +756,10 @@ PreservedAnalyses compiler::utils::ReplaceLocalModuleScopeVariablesPass::run(
 
     for (auto &arg : newFunc->args()) {
       args.push_back(&arg);
+    }
+
+    if (HasDynamicShared) {
+      args.pop_back();
     }
 
     // add the new alloca for the local module-scope variables struct
