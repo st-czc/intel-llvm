@@ -203,6 +203,21 @@ uint64_t getKernargSegmentSize(const Function &F, const DataLayout &DL,
   return alignTo(Size, 4);
 }
 
+// Returns the maximum flat work group size from __launch_bounds__.
+// If the attribute is absent, returns the device maximum.
+uint32_t getMaxFlatWorkGroupSize(const Function &F) {
+  constexpr uint32_t DeviceMaxWorkGroupSize = 1024;
+  Attribute Attr = F.getFnAttribute("amdgpu-flat-work-group-size");
+  if (!Attr.isStringAttribute())
+    return DeviceMaxWorkGroupSize;
+
+  StringRef Max = Attr.getValueAsString().split(',').second;
+  uint32_t MaxVal = 0;
+  if (Max.getAsInteger(10, MaxVal))
+    return DeviceMaxWorkGroupSize;
+  return MaxVal;
+}
+
 msgpack::MapDocNode emitKernel(const Function &F, LLVMContext &Ctx,
                                msgpack::Document &Doc, const Module &M,
                                StringRef Name) {
@@ -231,7 +246,7 @@ msgpack::MapDocNode emitKernel(const Function &F, LLVMContext &Ctx,
   Kern[".vgpr_spill_count"] = Doc.getNode(uint32_t(0));
 
   // The maximum flat work group size the kernel was built for.
-  Kern[".max_flat_workgroup_size"] = Doc.getNode(uint32_t(1024));
+  Kern[".max_flat_workgroup_size"] = Doc.getNode(getMaxFlatWorkGroupSize(F));
   if (F.hasFnAttribute("uniform-work-group-size")) {
     if (F.getFnAttribute("uniform-work-group-size").getValueAsBool())
       Kern[".uniform_work_group_size"] = Doc.getNode(uint32_t(1));
