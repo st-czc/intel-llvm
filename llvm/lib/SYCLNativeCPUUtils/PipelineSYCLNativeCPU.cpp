@@ -19,6 +19,7 @@
 #include "llvm/SYCLLowerIR/RenameKernelSYCLNativeCPU.h"
 #include "llvm/SYCLLowerIR/SpecConstants.h"
 #include "llvm/SYCLLowerIR/UtilsSYCLNativeCPU.h"
+
 #include "llvm/CodeGen/CommandFlags.h"
 #include "llvm/Support/CommandLine.h"
 #include "llvm/Target/TargetMachine.h"
@@ -61,12 +62,36 @@ static cl::opt<bool> IsDebug(
              "variables between barriers"));
 
 static cl::opt<unsigned> NativeCPUVeczWidth(
-    "sycl-native-cpu-vecz-width", cl::init(8),
-    cl::desc("Vector width for SYCL Native CPU vectorizer, defaults to 8"));
+    "cpu-vecz-width", cl::init(8), cl::desc("vecz vectorization width"));
+
+static cl::opt<bool> NativeCPUVeczScalable(
+    "cpu-vecz-scalable", cl::init(false),
+    cl::desc("Use scalable vectors (SVE/RVV) for vecz"));
+
+static cl::opt<bool> NativeCPUVeczVectorPredication(
+    "cpu-vecz-vector-predication", cl::init(false),
+    cl::desc("Enable vecz vector predication"));
+
+static cl::opt<bool> NativeCPUVeczLinearizeBOSCC(
+    "cpu-vecz-linearize-boscc", cl::init(false),
+    cl::desc("Enable vecz BOSCC control-flow linearization"));
+
+static cl::opt<bool> NativeCPUVeczPacketizeUniform(
+    "cpu-vecz-packetize-uniform", cl::init(false),
+    cl::desc("Packetize uniform instructions instead of splatting them"));
+
+static cl::opt<bool> NativeCPUVeczPacketizeUniformInLoops(
+    "cpu-vecz-packetize-uniform-loops", cl::init(false),
+    cl::desc("Packetize uniform instructions in loops instead of splatting "
+             "them"));
+
+static cl::opt<bool> NativeCPUVeczInstantiateCallsInLoops(
+    "cpu-vecz-instantiate-calls-in-loops", cl::init(false),
+    cl::desc("Instantiate calls in loops instead of duplicating them"));
 
 static cl::opt<bool>
-    SYCLNativeCPUNoVecz("sycl-native-cpu-no-vecz", cl::init(false),
-                        cl::desc("Disable vectorizer for SYCL Native CPU"));
+    SYCLNativeCPUNoVecz("native-cpu-no-vecz", cl::init(false),
+                        cl::desc("Disable the vecz vectorizer"));
 
 static cl::opt<bool>
     SYCLDumpIR("sycl-native-dump-device-ir", cl::init(false),
@@ -125,9 +150,28 @@ void llvm::sycl::utils::addSYCLNativeCPUBackendPasses(
       if (F.getCallingConv() != llvm::CallingConv::SPIR_KERNEL) {
         return false;
       }
-      auto VF = llvm::ElementCount::getFixed(NativeCPUVeczWidth);
       vecz::VeczPassOptions VPO;
-      VPO.factor = std::move(VF);
+      if (NativeCPUVeczVectorPredication) {
+        VPO.choices.enable(vecz::VectorizationChoices::eVectorPredication);
+      }
+      if (NativeCPUVeczLinearizeBOSCC) {
+        VPO.choices.enable(vecz::VectorizationChoices::eLinearizeBOSCC);
+      }
+      if (NativeCPUVeczPacketizeUniform) {
+        VPO.choices.enable(
+            vecz::VectorizationChoices::eOptimizationPacketizeUniform);
+      }
+      if (NativeCPUVeczPacketizeUniformInLoops) {
+        VPO.choices.enable(
+            vecz::VectorizationChoices::eOptimizationPacketizeUniformInLoops);
+      }
+      if (NativeCPUVeczInstantiateCallsInLoops) {
+        VPO.choices.enable(
+            vecz::VectorizationChoices::eOptimizationInstantiateCallsInLoops);
+      }
+      VPO.factor = NativeCPUVeczScalable
+                       ? llvm::ElementCount::getScalable(NativeCPUVeczWidth)
+                       : llvm::ElementCount::getFixed(NativeCPUVeczWidth);
       Opts.emplace_back(std::move(VPO));
       return true;
     };

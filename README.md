@@ -87,6 +87,33 @@ The effective sequence is a default optimization pipeline, the backend
 pipeline above, and another default optimization pipeline. The caller supplies
 both default pipelines around the named `sycl-native-cpu` pipeline.
 
+## Vectorizer options
+
+The plugin registers these `cl::opt` flags to configure vectorization. Each
+flag is declared in `llvm/lib/SYCLNativeCPUUtils/PipelineSYCLNativeCPU.cpp`.
+
+- `-cpu-vecz-width` (`unsigned`, default `8`) — vectorization factor. Bound to
+  `NativeCPUVeczWidth`.
+- `-cpu-vecz-scalable` (`bool`, default off) — use scalable vectors (SVE/RVV)
+  instead of fixed vectors. Bound to `NativeCPUVeczScalable`.
+- `-cpu-vecz-vector-predication` (`bool`, default off) — enable the
+  `VectorPredication` choice. Bound to `NativeCPUVeczVectorPredication`.
+- `-cpu-vecz-linearize-boscc` (`bool`, default off) — enable the
+  `LinearizeBOSCC` choice. Bound to `NativeCPUVeczLinearizeBOSCC`.
+- `-cpu-vecz-packetize-uniform` (`bool`, default off) — enable the
+  `PacketizeUniform` choice. Bound to `NativeCPUVeczPacketizeUniform`.
+- `-cpu-vecz-packetize-uniform-loops` (`bool`, default off) — enable the
+  `PacketizeUniformInLoops` choice. Bound to
+  `NativeCPUVeczPacketizeUniformInLoops`.
+- `-cpu-vecz-instantiate-calls-in-loops` (`bool`, default off) — enable the
+  `InstantiateCallsInLoops` choice. Bound to
+  `NativeCPUVeczInstantiateCallsInLoops`.
+- `-native-cpu-no-vecz` (`bool`, default off) — disable the vectorizer. Bound
+  to `SYCLNativeCPUNoVecz`.
+- `-native-cpu-force-no-tail` (`bool`, default off) — do not emit the peeling
+  loop for vectorized kernels when the local size is not a multiple of the
+  vector width. Bound to `ForceNoTail`.
+
 ## Layout
 
 - `llvm/include/llvm/SYCLLowerIR/` — pass declarations.
