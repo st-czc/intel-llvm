@@ -19,7 +19,12 @@
 #include "llvm/SYCLLowerIR/RenameKernelSYCLNativeCPU.h"
 #include "llvm/SYCLLowerIR/SpecConstants.h"
 #include "llvm/SYCLLowerIR/UtilsSYCLNativeCPU.h"
+#include "llvm/CodeGen/CommandFlags.h"
 #include "llvm/Support/CommandLine.h"
+#include "llvm/Target/TargetMachine.h"
+
+#include <memory>
+#include <optional>
 
 #ifdef NATIVECPU_USE_OCK
 #include "compiler/utils/builtin_info.h"
@@ -67,6 +72,29 @@ static cl::opt<bool>
     SYCLDumpIR("sycl-native-dump-device-ir", cl::init(false),
                cl::desc("Dump device IR after Native passes."));
 
+// A target machine built from the module triple and the -mcpu/-mattr opt was
+// given, so that the vectorizer can tune to the host CPU. Null when the triple
+// has no backend or the CPU is not one the target knows.
+static TargetMachine *getNativeCPUTargetMachine(const Module &M) {
+  static std::optional<std::unique_ptr<TargetMachine>> TM;
+  if (!TM) {
+    Triple TT(M.getTargetTriple());
+    if (TT.getArch() == Triple::UnknownArch || TT.getArchName().empty()) {
+      TM.emplace(nullptr);
+      return nullptr;
+    }
+    auto ExpectedTM =
+        codegen::createTargetMachineForTriple(TT, CodeGenOptLevel::Default);
+    if (!ExpectedTM) {
+      consumeError(ExpectedTM.takeError());
+      TM.emplace(nullptr);
+      return nullptr;
+    }
+    TM.emplace(std::move(*ExpectedTM));
+  }
+  return TM->get();
+}
+
 void llvm::sycl::utils::addSYCLNativeCPUBackendPasses(
     llvm::ModulePassManager &MPM, ModuleAnalysisManager &MAM,
     OptimizationLevel OptLevel) {
@@ -83,7 +111,13 @@ void llvm::sycl::utils::addSYCLNativeCPUBackendPasses(
   MPM.addPass(compiler::utils::TransferKernelMetadataPass());
   // Always enable vectorizer, unless explictly disabled or -O0 is set.
   if (OptLevel != OptimizationLevel::O0 && !SYCLNativeCPUNoVecz) {
-    MAM.registerPass([] { return vecz::TargetInfoAnalysis(); });
+    MAM.registerPass([] {
+      return vecz::TargetInfoAnalysis([](const Module &M) {
+        return vecz::TargetInfoAnalysis::Result(
+            vecz::createTargetInfoFromTargetMachine(
+                getNativeCPUTargetMachine(M)));
+      });
+    });
     MAM.registerPass([] { return compiler::utils::DeviceInfoAnalysis(); });
     auto QueryFunc =
         [](const llvm::Function &F, const llvm::ModuleAnalysisManager &,
