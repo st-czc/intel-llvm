@@ -4,6 +4,7 @@ add_llvm_pass_plugin(LLVMHIPOnSYCLNativeCPUPasses
   NativeCPUPassPlugin.cpp
   AggregateExternSharedSYCLNativeCPU.cpp
   EmitHIPNoteSYCLNativeCPU.cpp
+  LowerGridSyncSYCLNativeCPU.cpp
   PipelineSYCLNativeCPU.cpp
   PrepareSYCLNativeCPU.cpp
   RenameKernelSYCLNativeCPU.cpp
