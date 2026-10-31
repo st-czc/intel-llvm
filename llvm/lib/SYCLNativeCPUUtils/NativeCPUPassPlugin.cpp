@@ -13,6 +13,7 @@
 //
 //===----------------------------------------------------------------------===//
 
+#include "llvm/SYCLLowerIR/NormalizeTargetAttrsSYCLNativeCPU.h"
 #include "llvm/SYCLLowerIR/UtilsSYCLNativeCPU.h"
 
 #include "llvm/ADT/StringRef.h"
@@ -27,6 +28,7 @@ using namespace llvm;
 namespace {
 
 constexpr StringRef PipelineName = "sycl-native-cpu";
+constexpr StringRef NormalizePipelineName = "hipcpu-normalize";
 
 std::optional<OptimizationLevel> parseOptLevel(StringRef Param) {
   if (Param == "O0")
@@ -78,6 +80,15 @@ void registerCallbacks(PassBuilder &PB) {
         if (!Level)
           return false;
         addBackendPasses(MPM, *Level);
+        return true;
+      });
+
+  PB.registerPipelineParsingCallback(
+      [](StringRef Name, ModulePassManager &MPM,
+         ArrayRef<PassBuilder::PipelineElement>) {
+        if (Name != NormalizePipelineName)
+          return false;
+        MPM.addPass(NormalizeTargetAttrsSYCLNativeCPUPass());
         return true;
       });
 }

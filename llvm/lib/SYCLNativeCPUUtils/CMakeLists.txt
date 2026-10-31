@@ -9,6 +9,7 @@ add_llvm_pass_plugin(LLVMHIPOnSYCLNativeCPUPasses
   RenameKernelSYCLNativeCPU.cpp
   ConvertToMuxBuiltinsSYCLNativeCPU.cpp
   LowerAMDGPUBuiltinsSYCLNativeCPU.cpp
+  NormalizeTargetAttrsSYCLNativeCPU.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/../SYCLLowerIR/SpecConstants.cpp
 
   LINK_LIBS
