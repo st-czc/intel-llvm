@@ -58,6 +58,9 @@ void fixCallingConv(Function *F) { F->setCallingConv(llvm::CallingConv::C); }
 // Byte offset of MWorkGroup_id[0] in struct __nativecpu_state.
 static constexpr uint64_t NativeCPUWorkGroupIdOffset = 72;
 
+// Byte offset of MNumGroups[0] in struct __nativecpu_state.
+static constexpr uint64_t NativeCPUNumGroupsOffset = 120;
+
 // Run a range of blocks.
 void emitHIPSubkernelForKernel(Function *F, Type *NativeCPUArgDescType,
                                Type *StatePtrType,
@@ -127,24 +130,79 @@ void emitHIPSubkernelForKernel(Function *F, Type *NativeCPUArgDescType,
   } else
     KernelArgs.push_back(SubhF->getArg(1));
 
-  // Loop over the work-group range on dimension 0
-  Value *XBegin = SubhF->getArg(2);
-  Value *XEnd = SubhF->getArg(3);
+  // Run the flat work-group range [GBegin, GEnd), which the runtime
+  // guarantees to be non-empty.
+  Value *GBegin = SubhF->getArg(2);
+  Value *GEnd = SubhF->getArg(3);
+  auto StateSlot = [&](uint64_t Offset) {
+    return Builder.CreateGEP(Type::getInt8Ty(Ctx), SubhF->getArg(1),
+                             {ConstantInt::get(I64Ty, Offset)});
+  };
+  Value *WgIdSlot = StateSlot(NativeCPUWorkGroupIdOffset);
+  Value *WgId1Slot = StateSlot(NativeCPUWorkGroupIdOffset + 8);
+  Value *WgId2Slot = StateSlot(NativeCPUWorkGroupIdOffset + 16);
+  Value *NumGroups0 =
+      Builder.CreateLoad(I64Ty, StateSlot(NativeCPUNumGroupsOffset));
+  Value *NumGroups1 =
+      Builder.CreateLoad(I64Ty, StateSlot(NativeCPUNumGroupsOffset + 8));
+  Value *Group = Builder.CreateUDiv(GBegin, NumGroups0);
+  Value *X0 = Builder.CreateURem(GBegin, NumGroups0);
+  Value *Y0 = Builder.CreateURem(Group, NumGroups1);
+  Value *Z0 = Builder.CreateUDiv(Group, NumGroups1);
+  Builder.CreateStore(Y0, WgId1Slot);
+  Builder.CreateStore(Z0, WgId2Slot);
+
   BasicBlock *Header = BasicBlock::Create(Ctx, "hipcpu.loop", SubhF);
+  BasicBlock *WrapX = BasicBlock::Create(Ctx, "hipcpu.loop.wrap.x", SubhF);
+  BasicBlock *WrapY = BasicBlock::Create(Ctx, "hipcpu.loop.wrap.y", SubhF);
+  BasicBlock *Latch = BasicBlock::Create(Ctx, "hipcpu.loop.latch", SubhF);
   BasicBlock *Exit = BasicBlock::Create(Ctx, "hipcpu.exit", SubhF);
-  Builder.CreateCondBr(Builder.CreateICmpULT(XBegin, XEnd), Header, Exit);
+  Builder.CreateBr(Header);
 
   Builder.SetInsertPoint(Header);
   auto *X = Builder.CreatePHI(I64Ty, 2, "hipcpu.x");
-  X->addIncoming(XBegin, Block);
-  Value *WgIdSlot =
-      Builder.CreateGEP(Type::getInt8Ty(Ctx), SubhF->getArg(1),
-                        {ConstantInt::get(I64Ty, NativeCPUWorkGroupIdOffset)});
+  auto *Y = Builder.CreatePHI(I64Ty, 2, "hipcpu.y");
+  auto *Z = Builder.CreatePHI(I64Ty, 2, "hipcpu.z");
+  auto *G = Builder.CreatePHI(I64Ty, 2, "hipcpu.g");
+  X->addIncoming(X0, Block);
+  Y->addIncoming(Y0, Block);
+  Z->addIncoming(Z0, Block);
+  G->addIncoming(GBegin, Block);
   Builder.CreateStore(X, WgIdSlot);
   Builder.CreateCall(KernelTy, F, KernelArgs);
+  Value *GNext = Builder.CreateAdd(G, Builder.getInt64(1), "hipcpu.g.next");
   Value *XNext = Builder.CreateAdd(X, Builder.getInt64(1), "hipcpu.x.next");
-  X->addIncoming(XNext, Header);
-  Builder.CreateCondBr(Builder.CreateICmpULT(XNext, XEnd), Header, Exit);
+  Builder.CreateCondBr(Builder.CreateICmpEQ(XNext, NumGroups0), WrapX, Latch);
+
+  Builder.SetInsertPoint(WrapX);
+  Value *YNext = Builder.CreateAdd(Y, Builder.getInt64(1), "hipcpu.y.next");
+  Builder.CreateStore(YNext, WgId1Slot);
+  Builder.CreateCondBr(Builder.CreateICmpEQ(YNext, NumGroups1), WrapY, Latch);
+
+  Builder.SetInsertPoint(WrapY);
+  Value *ZNext = Builder.CreateAdd(Z, Builder.getInt64(1), "hipcpu.z.next");
+  Builder.CreateStore(ZNext, WgId2Slot);
+  Builder.CreateBr(Latch);
+
+  Builder.SetInsertPoint(Latch);
+  Value *Zero = Builder.getInt64(0);
+  auto *XLatch = Builder.CreatePHI(I64Ty, 3, "hipcpu.x.latch");
+  XLatch->addIncoming(XNext, Header);
+  XLatch->addIncoming(Zero, WrapX);
+  XLatch->addIncoming(Zero, WrapY);
+  auto *YLatch = Builder.CreatePHI(I64Ty, 3, "hipcpu.y.latch");
+  YLatch->addIncoming(Y, Header);
+  YLatch->addIncoming(YNext, WrapX);
+  YLatch->addIncoming(Zero, WrapY);
+  auto *ZLatch = Builder.CreatePHI(I64Ty, 3, "hipcpu.z.latch");
+  ZLatch->addIncoming(Z, Header);
+  ZLatch->addIncoming(Z, WrapX);
+  ZLatch->addIncoming(ZNext, WrapY);
+  X->addIncoming(XLatch, Latch);
+  Y->addIncoming(YLatch, Latch);
+  Z->addIncoming(ZLatch, Latch);
+  G->addIncoming(GNext, Latch);
+  Builder.CreateCondBr(Builder.CreateICmpULT(GNext, GEnd), Header, Exit);
 
   Builder.SetInsertPoint(Exit);
   Builder.CreateRetVoid();
