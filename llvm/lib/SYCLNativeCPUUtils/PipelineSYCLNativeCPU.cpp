@@ -15,6 +15,7 @@
 #include "llvm/SYCLLowerIR/ConvertToMuxBuiltinsSYCLNativeCPU.h"
 #include "llvm/SYCLLowerIR/EmitHIPNoteSYCLNativeCPU.h"
 #include "llvm/SYCLLowerIR/LowerAMDGPUBuiltinsSYCLNativeCPU.h"
+#include "llvm/SYCLLowerIR/MakeDeviceGlobalsWritableSYCLNativeCPU.h"
 #include "llvm/SYCLLowerIR/PrepareSYCLNativeCPU.h"
 #include "llvm/SYCLLowerIR/RenameKernelSYCLNativeCPU.h"
 #include "llvm/SYCLLowerIR/SpecConstants.h"
@@ -128,6 +129,7 @@ void llvm::sycl::utils::addSYCLNativeCPUBackendPasses(
   // the form the HIP runtime expects to read back.
   MPM.addPass(EmitHIPNoteSYCLNativeCPUPass());
   MPM.addPass(AggregateExternSharedSYCLNativeCPUPass());
+  MPM.addPass(MakeDeviceGlobalsWritableSYCLNativeCPUPass());
   MPM.addPass(SpecConstantsPass(SpecConstantsPass::HandlingMode::emulation));
   MPM.addPass(ConvertToMuxBuiltinsSYCLNativeCPUPass());
   MPM.addPass(LowerAMDGPUBuiltinsSYCLNativeCPUPass());
