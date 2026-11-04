@@ -286,8 +286,6 @@ EmitHIPNoteSYCLNativeCPUPass::run(Module &M, ModuleAnalysisManager &MAM) {
     if (F.getCallingConv() == CallingConv::SPIR_KERNEL && !F.isDeclaration())
       Kernels.push_back(&F);
   }
-  if (Kernels.empty())
-    return PreservedAnalyses::all();
 
   msgpack::Document Doc;
 
@@ -309,8 +307,6 @@ EmitHIPNoteSYCLNativeCPUPass::run(Module &M, ModuleAnalysisManager &MAM) {
           emitKernel(*F, M.getContext(), Doc, M, F->getName()));
     }
   }
-  if (KernelArray.empty())
-    return PreservedAnalyses::all();
   Doc.getRoot().getMap(/*Convert=*/true)["amdhsa.kernels"] = KernelArray;
 
   std::string Desc;
