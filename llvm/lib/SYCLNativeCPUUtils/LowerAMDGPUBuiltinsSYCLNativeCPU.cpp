@@ -115,11 +115,18 @@ static void lowerEquivalent(Module &M, CallInst *CI, Intrinsic::ID ID) {
   CI->eraseFromParent();
 }
 
+static void lowerSteadyCounter(Module &M, CallInst *CI) {
+  Function *Cycle =
+      Intrinsic::getOrInsertDeclaration(&M, Intrinsic::readcyclecounter);
+  CI->setCalledFunction(Cycle);
+}
+
 } // namespace
 
 PreservedAnalyses
 LowerAMDGPUBuiltinsSYCLNativeCPUPass::run(Module &M, ModuleAnalysisManager &) {
   SmallVector<CallInst *, 4> SleepCalls;
+  SmallVector<CallInst *, 4> SteadyCounterCalls;
   SmallVector<std::pair<CallInst *, Intrinsic::ID>, 4> EquivalentCalls;
   SmallVector<std::pair<CallInst *, Intrinsic::ID>, 4> ReciprocalCalls;
   for (Function &F : M)
@@ -129,6 +136,8 @@ LowerAMDGPUBuiltinsSYCLNativeCPUPass::run(Module &M, ModuleAnalysisManager &) {
           const Intrinsic::ID ID = CI->getIntrinsicID();
           if (ID == Intrinsic::amdgcn_s_sleep)
             SleepCalls.push_back(CI);
+          else if (ID == Intrinsic::readsteadycounter)
+            SteadyCounterCalls.push_back(CI);
           else if (isReciprocal(ID))
             ReciprocalCalls.push_back({CI, ID});
           else if (const Intrinsic::ID Equivalent = getEquivalentIntrinsic(ID);
@@ -136,11 +145,15 @@ LowerAMDGPUBuiltinsSYCLNativeCPUPass::run(Module &M, ModuleAnalysisManager &) {
             EquivalentCalls.push_back({CI, Equivalent});
         }
 
-  if (SleepCalls.empty() && EquivalentCalls.empty() && ReciprocalCalls.empty())
+  if (SleepCalls.empty() && SteadyCounterCalls.empty() &&
+      EquivalentCalls.empty() && ReciprocalCalls.empty())
     return PreservedAnalyses::all();
 
   for (CallInst *CI : SleepCalls)
     lowerSSleep(M, CI);
+
+  for (CallInst *CI : SteadyCounterCalls)
+    lowerSteadyCounter(M, CI);
 
   for (auto &[CI, ID] : EquivalentCalls)
     lowerEquivalent(M, CI, ID);
