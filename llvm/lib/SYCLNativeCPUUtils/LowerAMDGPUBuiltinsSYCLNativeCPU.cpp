@@ -13,6 +13,7 @@
 
 #include "llvm/SYCLLowerIR/LowerAMDGPUBuiltinsSYCLNativeCPU.h"
 #include "llvm/ADT/SmallVector.h"
+#include "llvm/IR/GlobalValue.h"
 #include "llvm/IR/IRBuilder.h"
 #include "llvm/IR/Instructions.h"
 #include "llvm/IR/Intrinsics.h"
@@ -121,10 +122,21 @@ static void lowerSteadyCounter(Module &M, CallInst *CI) {
   CI->setCalledFunction(Cycle);
 }
 
+static bool exposeHostPrintf(Module &M) {
+  Function *Printf = M.getFunction("printf");
+  if (Printf == nullptr || !Printf->isDeclaration() ||
+      Printf->getVisibility() != GlobalValue::HiddenVisibility)
+    return false;
+  Printf->setVisibility(GlobalValue::DefaultVisibility);
+  return true;
+}
+
 } // namespace
 
 PreservedAnalyses
 LowerAMDGPUBuiltinsSYCLNativeCPUPass::run(Module &M, ModuleAnalysisManager &) {
+  const bool PrintfExposed = exposeHostPrintf(M);
+
   SmallVector<CallInst *, 4> SleepCalls;
   SmallVector<CallInst *, 4> SteadyCounterCalls;
   SmallVector<std::pair<CallInst *, Intrinsic::ID>, 4> EquivalentCalls;
@@ -147,7 +159,7 @@ LowerAMDGPUBuiltinsSYCLNativeCPUPass::run(Module &M, ModuleAnalysisManager &) {
 
   if (SleepCalls.empty() && SteadyCounterCalls.empty() &&
       EquivalentCalls.empty() && ReciprocalCalls.empty())
-    return PreservedAnalyses::all();
+    return PrintfExposed ? PreservedAnalyses::none() : PreservedAnalyses::all();
 
   for (CallInst *CI : SleepCalls)
     lowerSSleep(M, CI);
