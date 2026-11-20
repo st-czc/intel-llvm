@@ -65,10 +65,6 @@ static constexpr uint64_t NativeCPUNumGroupsOffset = 120;
 void emitHIPSubkernelForKernel(Function *F, Type *NativeCPUArgDescType,
                                Type *StatePtrType,
                                llvm::Constant *StateArgTLS) {
-  LLVMContext &Ctx = F->getContext();
-  Type *I64Ty = Type::getInt64Ty(Ctx);
-  Type *NativeCPUArgDescPtrType = PointerType::getUnqual(Ctx);
-
   // Create function signature
   // Todo: we need to ensure that the kernel name is not mangled as a type
   // name, otherwise this may lead to runtime failures due to *weird*
@@ -77,10 +73,17 @@ void emitHIPSubkernelForKernel(Function *F, Type *NativeCPUArgDescType,
   // on when lowering the device module
   std::string OldName = F->getName().str();
   auto NewName = Twine(OldName) + sycl::utils::SYCLNATIVECPUKERNEL;
-  const StringRef SubHandlerName = OldName;
   F->setName(NewName);
   F->setComdat(nullptr);
   F->setLinkage(GlobalValue::LinkageTypes::InternalLinkage);
+  if (OldName != compiler::utils::getOrigFnName(*F))
+    return;
+
+  LLVMContext &Ctx = F->getContext();
+  Type *I64Ty = Type::getInt64Ty(Ctx);
+  Type *NativeCPUArgDescPtrType = PointerType::getUnqual(Ctx);
+
+  const StringRef SubHandlerName = OldName;
   FunctionType *FTy = FunctionType::get(
       Type::getVoidTy(Ctx),
       {NativeCPUArgDescPtrType, StatePtrType, I64Ty, I64Ty, I64Ty}, false);

@@ -53,8 +53,8 @@ RenameKernelSYCLNativeCPUPass::run(Module &M, ModuleAnalysisManager &MAM) {
     }
 
     if (F.hasFnAttribute(sycl::utils::ATTR_SYCL_MODULE_ID)) {
-      F.setName(sycl::utils::addSYCLNativeCPUSuffix(F.getName()));
-      ModuleChanged = true;
+      // F.setName(sycl::utils::addSYCLNativeCPUSuffix(F.getName()));
+      // ModuleChanged = true;
     } else if (isSpirvSyclBuiltin(F.getName()) || F.isIntrinsic())
       continue;
     else if (!F.isDeclaration()) {
